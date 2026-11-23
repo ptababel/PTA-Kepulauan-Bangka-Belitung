@@ -1,0 +1,8 @@
+{
+  "name": "Absen MBB - Makan Berkah Bersama PTA Kep. Babel",
+  "description": "Aplikasi presensi dan pencatatan penerimaan Makan Berkah Bersama (MBB) Pengadilan Tinggi Agama Kepulauan Bangka Belitung.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
