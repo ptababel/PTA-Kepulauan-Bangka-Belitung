@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { CheckCircle2, XCircle } from 'lucide-react';
-import { apiFetch, setAuthToken } from './api/client';
+import { auth } from './firebase';
+import {
+  BOOTSTRAPPED_ADMIN_EMAIL,
+  getFriendlyErrorMessage,
+  resolveSignedInUser,
+} from './services/mbbFirestore';
 import { AppShell } from './components/AppShell';
 import { AuthScreen } from './components/AuthScreen';
 import { DashboardView } from './components/DashboardView';
@@ -18,8 +24,8 @@ interface ToastState {
 
 export default function App() {
   const [bootLoading, setBootLoading] = useState(true);
-  const [needsInitialSetup, setNeedsInitialSetup] = useState(false);
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [authError, setAuthError] = useState('');
   const [activeTab, setActiveTab] = useState<NavTab>('dashboard');
   const [toast, setToast] = useState<ToastState | null>(null);
 
@@ -28,41 +34,63 @@ export default function App() {
     setToast({ id, message, type });
     setTimeout(() => {
       setToast((cur) => (cur?.id === id ? null : cur));
-    }, 4000);
+    }, 4500);
   }, []);
 
   useEffect(() => {
-    let active = true;
-    async function checkAuthStatus() {
-      try {
-        const status = await apiFetch<{
-          ok: true;
-          needsInitialSetup: boolean;
-        }>('/api/auth/status');
-        if (active) {
-          setNeedsInitialSetup(status.needsInitialSetup);
-        }
-      } catch {
-        // default to login form
-      } finally {
-        if (active) setBootLoading(false);
+    const unsub = onAuthStateChanged(auth, async (fbUser) => {
+      if (!fbUser) {
+        setUser(null);
+        setBootLoading(false);
+        return;
       }
-    }
-    void checkAuthStatus();
-    return () => {
-      active = false;
-    };
+
+      setBootLoading(true);
+      setAuthError('');
+      try {
+        const res = await resolveSignedInUser(fbUser);
+        if (res.status === 'ok') {
+          setUser(res.user);
+          setActiveTab(res.user.role === 'petugas' ? 'penerimaan' : 'dashboard');
+        } else {
+          await signOut(auth);
+          setUser(null);
+          if (res.status === 'unverified') {
+            setAuthError('Email akun Google belum terverifikasi. Gunakan akun Google terverifikasi.');
+          } else if (res.status === 'inactive') {
+            setAuthError('Akun Anda sedang dinonaktifkan. Silakan hubungi Administrator.');
+          } else {
+            setAuthError(
+              `Akun Google ${res.email} belum terdaftar sebagai Admin atau Petugas. Hubungi Administrator (${BOOTSTRAPPED_ADMIN_EMAIL}) untuk mendaftarkan email Anda pada menu Kelola Pegawai → Akun Petugas & Admin.`
+            );
+          }
+        }
+      } catch (err) {
+        await signOut(auth).catch(() => undefined);
+        setUser(null);
+        setAuthError(
+          getFriendlyErrorMessage(
+            err,
+            'Gagal memverifikasi akses akun di Firebase Firestore. Silakan coba lagi.'
+          )
+        );
+      } finally {
+        setBootLoading(false);
+      }
+    });
+
+    return () => unsub();
   }, []);
 
-  function handleAuthenticated(loggedInUser: AuthUser) {
-    setUser(loggedInUser);
-    setActiveTab(loggedInUser.role === 'petugas' ? 'penerimaan' : 'dashboard');
-  }
-
-  function handleLogout() {
-    setAuthToken(null);
-    setUser(null);
-    setActiveTab('dashboard');
+  async function handleLogout() {
+    try {
+      await signOut(auth);
+      setUser(null);
+      setAuthError('');
+      setActiveTab('dashboard');
+    } catch {
+      notify('Gagal keluar dari sesi Google.', 'error');
+    }
   }
 
   function handleSelectTab(tab: NavTab) {
@@ -76,19 +104,15 @@ export default function App() {
   if (bootLoading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
-        <div className="text-sm text-slate-600 font-medium">Memuat sistem Absen MBB...</div>
+        <div className="text-sm text-slate-600 font-medium">
+          Menghubungkan sistem Absen MBB ke Firebase...
+        </div>
       </div>
     );
   }
 
   if (!user) {
-    return (
-      <AuthScreen
-        needsInitialSetup={needsInitialSetup}
-        onSetupCompleted={() => setNeedsInitialSetup(false)}
-        onAuthenticated={handleAuthenticated}
-      />
-    );
+    return <AuthScreen externalError={authError} onClearExternalError={() => setAuthError('')} />;
   }
 
   return (
@@ -97,7 +121,7 @@ export default function App() {
         user={user}
         activeTab={activeTab}
         onSelectTab={handleSelectTab}
-        onLogout={handleLogout}
+        onLogout={() => void handleLogout()}
       >
         {activeTab === 'dashboard' && <DashboardView onNavigate={handleSelectTab} />}
         {activeTab === 'penerimaan' && <PenerimaanView user={user} onNotify={notify} />}
@@ -105,10 +129,9 @@ export default function App() {
           <KelolaPegawaiView currentUser={user} onNotify={notify} />
         )}
         {activeTab === 'riwayat' && <RiwayatView user={user} onNotify={notify} />}
-        {activeTab === 'rekapitulasi' && <RekapitulasiView onNotify={notify} />}
+        {activeTab === 'rekapitulasi' && <RekapitulasiView user={user} onNotify={notify} />}
       </AppShell>
 
-      {/* Non-intrusive Toast Notification */}
       {toast && (
         <div
           role="status"

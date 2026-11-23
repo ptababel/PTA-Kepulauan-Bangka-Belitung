@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, Clock, RefreshCw, Utensils } from 'lucide-react';
-import { apiFetch, ApiError } from '../api/client';
+import {
+  fetchPegawaiWithToday,
+  getFriendlyErrorMessage,
+  recordPenerimaan,
+  subscribePegawaiWithToday,
+} from '../services/mbbFirestore';
 import type { AuthUser, Pegawai } from '../types';
 import { filterEmployees } from '../utils/mbbLogic';
 import { extractWibTime, formatIndonesianDate, getWibDateString } from '../utils/wib';
@@ -22,34 +27,39 @@ export function PenerimaanView({ user, onNotify }: PenerimaanViewProps) {
   const [statusFilter, setStatusFilter] = useState<'all' | 'belum' | 'sudah'>('all');
 
   const [confirmTarget, setConfirmTarget] = useState<Pegawai | null>(null);
-  const [submittingId, setSubmittingId] = useState<number | null>(null);
+  const [submittingId, setSubmittingId] = useState<string | null>(null);
 
   const loadList = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await apiFetch<{
-        ok: true;
-        today_wib: string;
-        pegawai: Pegawai[];
-        units: string[];
-      }>('/api/pegawai');
-      // Only active employees can receive food
+      const res = await fetchPegawaiWithToday(user.role);
       setPegawaiList(res.pegawai.filter((p) => p.is_active === 1));
       setUnits(res.units);
       setTodayWib(res.today_wib);
     } catch (err) {
-      onNotify(
-        err instanceof ApiError ? err.message : 'Gagal memuat daftar pegawai.',
-        'error'
-      );
+      onNotify(getFriendlyErrorMessage(err, 'Gagal memuat daftar pegawai.'), 'error');
     } finally {
       setLoading(false);
     }
-  }, [onNotify]);
+  }, [user.role, onNotify]);
 
   useEffect(() => {
-    void loadList();
-  }, [loadList]);
+    setLoading(true);
+    const unsub = subscribePegawaiWithToday(
+      user.role,
+      (res) => {
+        setPegawaiList(res.pegawai.filter((p) => p.is_active === 1));
+        setUnits(res.units);
+        setTodayWib(res.today_wib);
+        setLoading(false);
+      },
+      (err) => {
+        onNotify(getFriendlyErrorMessage(err, 'Gagal menyinkronkan data dari Firebase.'), 'error');
+        setLoading(false);
+      }
+    );
+    return () => unsub();
+  }, [user.role, onNotify]);
 
   useEffect(() => {
     if (!confirmTarget) return;
@@ -83,18 +93,7 @@ export function PenerimaanView({ user, onNotify }: PenerimaanViewProps) {
     setSubmittingId(target.id);
 
     try {
-      const res = await apiFetch<{
-        ok: true;
-        id: number;
-        waktu_terima: string;
-        jam_wib: string;
-        petugas: string;
-        message: string;
-      }>('/api/penerimaan', {
-        method: 'POST',
-        body: JSON.stringify({ pegawai_id: target.id }),
-      });
-
+      const res = await recordPenerimaan(target, user);
       setPegawaiList((prev) =>
         prev.map((item) =>
           item.id === target.id
@@ -111,10 +110,7 @@ export function PenerimaanView({ user, onNotify }: PenerimaanViewProps) {
       onNotify(res.message, 'success');
     } catch (err) {
       setConfirmTarget(null);
-      onNotify(
-        err instanceof ApiError ? err.message : 'Gagal mencatat penerimaan makanan.',
-        'error'
-      );
+      onNotify(getFriendlyErrorMessage(err, 'Gagal mencatat penerimaan makanan.'), 'error');
       void loadList();
     } finally {
       setSubmittingId(null);

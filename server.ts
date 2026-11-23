@@ -3,20 +3,12 @@ import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
-import { getDb } from './server/db';
-import { createApiRouter } from './server/routes';
 
 const PORT = 3000;
 
 async function startServer() {
-  // Initialize SQLite database & seed employees on boot
-  getDb();
-
   const app = express();
   app.set('trust proxy', 1);
-  app.use(express.json({ limit: '5mb' }));
-
-  app.use('/api', createApiRouter());
 
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({

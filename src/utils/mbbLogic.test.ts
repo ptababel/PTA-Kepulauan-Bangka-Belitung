@@ -28,17 +28,17 @@ test('WIB date & time conversion handles UTC midnight rollover into UTC+7', () =
 test('filterEmployees filters by search, unit, receipt status, and active status', () => {
   const sample: Pegawai[] = [
     {
-      id: 1,
+      id: '1',
       kode_pegawai: 'MBB-001',
       nama_lengkap: 'Ahmad Fauzi',
       unit_kerja: 'Kepaniteraan',
       is_active: 1,
       created_at: '',
       updated_at: '',
-      penerimaan_id: 10,
+      penerimaan_id: '10',
     },
     {
-      id: 2,
+      id: '2',
       kode_pegawai: 'MBB-002',
       nama_lengkap: 'Siti Rahma',
       unit_kerja: 'Kesekretariatan',
@@ -48,7 +48,7 @@ test('filterEmployees filters by search, unit, receipt status, and active status
       penerimaan_id: null,
     },
     {
-      id: 3,
+      id: '3',
       kode_pegawai: 'MBB-003',
       nama_lengkap: 'Budi Santoso',
       unit_kerja: 'Kepaniteraan',
@@ -67,7 +67,7 @@ test('filterEmployees filters by search, unit, receipt status, and active status
   assert.equal(
     filterEmployees(sample, { search: '', unit: '', status: 'belum', activeFilter: 'active' })[0]
       .id,
-    2
+    '2'
   );
 });
 
@@ -91,17 +91,17 @@ test('parseExcelEmployeeRows normalizes Indonesian headers and flags invalid/dup
 test('computeDistributionStats and formatNextKodePegawai calculate accurately', () => {
   const list: Pegawai[] = [
     {
-      id: 1,
+      id: '1',
       kode_pegawai: 'MBB-001',
       nama_lengkap: 'A',
       unit_kerja: 'Kepaniteraan',
       is_active: 1,
       created_at: '',
       updated_at: '',
-      penerimaan_id: 1,
+      penerimaan_id: '1',
     },
     {
-      id: 2,
+      id: '2',
       kode_pegawai: 'MBB-002',
       nama_lengkap: 'B',
       unit_kerja: 'Kepaniteraan',
@@ -111,7 +111,7 @@ test('computeDistributionStats and formatNextKodePegawai calculate accurately', 
       penerimaan_id: null,
     },
     {
-      id: 3,
+      id: '3',
       kode_pegawai: 'MBB-009',
       nama_lengkap: 'C',
       unit_kerja: 'Umum',

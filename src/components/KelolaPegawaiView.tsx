@@ -11,8 +11,20 @@ import {
   UserX,
   Users,
 } from 'lucide-react';
-import { apiFetch, ApiError } from '../api/client';
-import type { AuthUser, Pegawai } from '../types';
+import {
+  BOOTSTRAPPED_ADMIN_EMAIL,
+  createPegawai,
+  createStaffInvite,
+  fetchPegawaiWithToday,
+  fetchStaffAccounts,
+  getFriendlyErrorMessage,
+  importPegawaiRows,
+  subscribePegawaiWithToday,
+  togglePegawaiStatus,
+  toggleStaffInviteStatus,
+  updatePegawai,
+} from '../services/mbbFirestore';
+import type { AuthUser, Pegawai, StaffInvite } from '../types';
 import {
   filterEmployees,
   parseExcelEmployeeRows,
@@ -24,10 +36,6 @@ import { PegawaiDropdown } from './PegawaiDropdown';
 interface KelolaPegawaiViewProps {
   currentUser: AuthUser;
   onNotify: (msg: string, type?: 'success' | 'error') => void;
-}
-
-interface ManagedAccount extends AuthUser {
-  created_at: string;
 }
 
 export function KelolaPegawaiView({ currentUser, onNotify }: KelolaPegawaiViewProps) {
@@ -55,27 +63,23 @@ export function KelolaPegawaiView({ currentUser, onNotify }: KelolaPegawaiViewPr
   const [importFileName, setImportFileName] = useState('');
   const [importing, setImporting] = useState(false);
 
-  // Accounts state (Petugas & Admin)
-  const [accounts, setAccounts] = useState<ManagedAccount[]>([]);
+  // Accounts state (Petugas & Admin via Google Email)
+  const [accounts, setAccounts] = useState<StaffInvite[]>([]);
   const [loadingAccounts, setLoadingAccounts] = useState(false);
   const [accountModalOpen, setAccountModalOpen] = useState(false);
-  const [accUsername, setAccUsername] = useState('');
+  const [accEmail, setAccEmail] = useState('');
   const [accNama, setAccNama] = useState('');
   const [accRole, setAccRole] = useState<'petugas' | 'admin'>('petugas');
-  const [accPassword, setAccPassword] = useState('');
   const [savingAcc, setSavingAcc] = useState(false);
 
   const loadPegawai = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await apiFetch<{ ok: true; pegawai: Pegawai[]; units: string[] }>('/api/pegawai');
+      const res = await fetchPegawaiWithToday('admin');
       setPegawaiList(res.pegawai);
       setUnits(res.units);
     } catch (err) {
-      onNotify(
-        err instanceof ApiError ? err.message : 'Gagal memuat data pegawai.',
-        'error'
-      );
+      onNotify(getFriendlyErrorMessage(err, 'Gagal memuat data pegawai.'), 'error');
     } finally {
       setLoading(false);
     }
@@ -84,21 +88,31 @@ export function KelolaPegawaiView({ currentUser, onNotify }: KelolaPegawaiViewPr
   const loadAccounts = useCallback(async () => {
     setLoadingAccounts(true);
     try {
-      const res = await apiFetch<{ ok: true; users: ManagedAccount[] }>('/api/users');
-      setAccounts(res.users);
+      const list = await fetchStaffAccounts();
+      setAccounts(list);
     } catch (err) {
-      onNotify(
-        err instanceof ApiError ? err.message : 'Gagal memuat daftar akun.',
-        'error'
-      );
+      onNotify(getFriendlyErrorMessage(err, 'Gagal memuat daftar akun.'), 'error');
     } finally {
       setLoadingAccounts(false);
     }
   }, [onNotify]);
 
   useEffect(() => {
-    void loadPegawai();
-  }, [loadPegawai]);
+    setLoading(true);
+    const unsub = subscribePegawaiWithToday(
+      'admin',
+      (res) => {
+        setPegawaiList(res.pegawai);
+        setUnits(res.units);
+        setLoading(false);
+      },
+      (err) => {
+        onNotify(getFriendlyErrorMessage(err, 'Gagal menyinkronkan data pegawai.'), 'error');
+        setLoading(false);
+      }
+    );
+    return () => unsub();
+  }, [onNotify]);
 
   useEffect(() => {
     if (subTab === 'akun') {
@@ -154,35 +168,26 @@ export function KelolaPegawaiView({ currentUser, onNotify }: KelolaPegawaiViewPr
     setSavingEmp(true);
     try {
       if (editingEmp) {
-        const res = await apiFetch<{ ok: true; message: string }>(
-          `/api/pegawai/${editingEmp.id}`,
-          {
-            method: 'PUT',
-            body: JSON.stringify({
-              nama_lengkap: formNama.trim(),
-              unit_kerja: formUnit.trim(),
-            }),
-          }
+        const message = await updatePegawai(
+          editingEmp,
+          { nama_lengkap: formNama.trim(), unit_kerja: formUnit.trim() },
+          currentUser
         );
-        onNotify(res.message, 'success');
+        onNotify(message, 'success');
       } else {
-        const res = await apiFetch<{ ok: true; message: string }>('/api/pegawai', {
-          method: 'POST',
-          body: JSON.stringify({
+        const message = await createPegawai(
+          {
             kode_pegawai: formKode.trim() || undefined,
             nama_lengkap: formNama.trim(),
             unit_kerja: formUnit.trim(),
-          }),
-        });
-        onNotify(res.message, 'success');
+          },
+          currentUser
+        );
+        onNotify(message, 'success');
       }
       setFormOpen(false);
-      await loadPegawai();
     } catch (err) {
-      onNotify(
-        err instanceof ApiError ? err.message : 'Gagal menyimpan data pegawai.',
-        'error'
-      );
+      onNotify(getFriendlyErrorMessage(err, 'Gagal menyimpan data pegawai.'), 'error');
     } finally {
       setSavingEmp(false);
     }
@@ -191,20 +196,10 @@ export function KelolaPegawaiView({ currentUser, onNotify }: KelolaPegawaiViewPr
   async function handleTogglePegawaiStatus(emp: Pegawai) {
     const nextActive = emp.is_active === 1 ? 0 : 1;
     try {
-      const res = await apiFetch<{ ok: true; message: string }>(
-        `/api/pegawai/${emp.id}/status`,
-        {
-          method: 'PATCH',
-          body: JSON.stringify({ is_active: nextActive }),
-        }
-      );
-      onNotify(res.message, 'success');
-      await loadPegawai();
+      const message = await togglePegawaiStatus(emp, nextActive, currentUser);
+      onNotify(message, 'success');
     } catch (err) {
-      onNotify(
-        err instanceof ApiError ? err.message : 'Gagal mengubah status pegawai.',
-        'error'
-      );
+      onNotify(getFriendlyErrorMessage(err, 'Gagal mengubah status pegawai.'), 'error');
     }
   }
 
@@ -320,26 +315,21 @@ export function KelolaPegawaiView({ currentUser, onNotify }: KelolaPegawaiViewPr
 
     setImporting(true);
     try {
-      const res = await apiFetch<{ ok: true; message: string }>('/api/pegawai/import', {
-        method: 'POST',
-        body: JSON.stringify({
-          rows: validRows.map((r) => ({
-            kode_pegawai: r.kode_pegawai || undefined,
-            nama_lengkap: r.nama_lengkap,
-            unit_kerja: r.unit_kerja,
-          })),
-        }),
-      });
+      const res = await importPegawaiRows(
+        validRows.map((r) => ({
+          kode_pegawai: r.kode_pegawai || undefined,
+          nama_lengkap: r.nama_lengkap,
+          unit_kerja: r.unit_kerja,
+        })),
+        currentUser
+      );
       onNotify(res.message, 'success');
       setImportOpen(false);
       setImportPreview([]);
       setImportFileName('');
       await loadPegawai();
     } catch (err) {
-      onNotify(
-        err instanceof ApiError ? err.message : 'Gagal mengimpor data pegawai.',
-        'error'
-      );
+      onNotify(getFriendlyErrorMessage(err, 'Gagal mengimpor data pegawai.'), 'error');
     } finally {
       setImporting(false);
     }
@@ -349,45 +339,35 @@ export function KelolaPegawaiView({ currentUser, onNotify }: KelolaPegawaiViewPr
     e.preventDefault();
     setSavingAcc(true);
     try {
-      const res = await apiFetch<{ ok: true; message: string }>('/api/users', {
-        method: 'POST',
-        body: JSON.stringify({
-          username: accUsername.trim(),
+      const message = await createStaffInvite(
+        {
+          email: accEmail.trim(),
           nama_lengkap: accNama.trim(),
           role: accRole,
-          password: accPassword,
-        }),
-      });
-      onNotify(res.message, 'success');
+        },
+        currentUser
+      );
+      onNotify(message, 'success');
       setAccountModalOpen(false);
-      setAccUsername('');
+      setAccEmail('');
       setAccNama('');
-      setAccPassword('');
       setAccRole('petugas');
       await loadAccounts();
     } catch (err) {
-      onNotify(
-        err instanceof ApiError ? err.message : 'Gagal menambahkan akun.',
-        'error'
-      );
+      onNotify(getFriendlyErrorMessage(err, 'Gagal menambahkan akun.'), 'error');
     } finally {
       setSavingAcc(false);
     }
   }
 
-  async function handleToggleAccount(acc: ManagedAccount) {
+  async function handleToggleAccount(acc: StaffInvite) {
     try {
-      const res = await apiFetch<{ ok: true; message: string }>(`/api/users/${acc.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ is_active: acc.is_active === 1 ? 0 : 1 }),
-      });
-      onNotify(res.message, 'success');
+      const nextActive = acc.is_active === 1 ? 0 : 1;
+      const message = await toggleStaffInviteStatus(acc, nextActive);
+      onNotify(message, 'success');
       await loadAccounts();
     } catch (err) {
-      onNotify(
-        err instanceof ApiError ? err.message : 'Gagal mengubah status akun.',
-        'error'
-      );
+      onNotify(getFriendlyErrorMessage(err, 'Gagal mengubah status akun.'), 'error');
     }
   }
 
@@ -398,7 +378,8 @@ export function KelolaPegawaiView({ currentUser, onNotify }: KelolaPegawaiViewPr
         <div>
           <h2 className="text-xl sm:text-2xl font-bold text-slate-900">Kelola Pegawai &amp; Akun</h2>
           <p className="text-sm text-slate-600 mt-0.5">
-            ID unik menjaga keutuhan riwayat penerimaan saat nama atau unit kerja diperbarui.
+            Klik <strong>Edit</strong> untuk mengganti nama/unit kerja pegawai atau gunakan{' '}
+            <strong>Import Excel</strong> — tersimpan permanen di Firebase Firestore.
           </p>
         </div>
 
@@ -648,7 +629,8 @@ export function KelolaPegawaiView({ currentUser, onNotify }: KelolaPegawaiViewPr
         <div className="space-y-4">
           <div className="bg-white border border-slate-200 rounded-xl p-4 flex flex-wrap items-center justify-between gap-3">
             <div className="text-sm text-slate-600">
-              Kelola akun login untuk Petugas Pembagian Makanan dan Administrator.
+              Daftarkan alamat email Google Petugas Pembagian Makanan atau Administrator tambahan
+              agar dapat masuk menggunakan tombol Login Google.
             </div>
             <button
               type="button"
@@ -668,7 +650,7 @@ export function KelolaPegawaiView({ currentUser, onNotify }: KelolaPegawaiViewPr
                 <table className="w-full text-sm text-left">
                   <thead className="bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-600">
                     <tr>
-                      <th className="px-4 py-3">Username</th>
+                      <th className="px-4 py-3">Email Google</th>
                       <th className="px-4 py-3">Nama Lengkap</th>
                       <th className="px-4 py-3">Peran</th>
                       <th className="px-4 py-3">Status</th>
@@ -676,11 +658,29 @@ export function KelolaPegawaiView({ currentUser, onNotify }: KelolaPegawaiViewPr
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
+                    <tr className="bg-emerald-50/40">
+                      <td className="px-4 py-3 font-mono text-xs text-slate-700">
+                        {BOOTSTRAPPED_ADMIN_EMAIL}
+                      </td>
+                      <td className="px-4 py-3 font-medium text-slate-900">
+                        Administrator Utama PTA Kep. Babel
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-700">
+                          <Shield className="w-3.5 h-3.5 text-emerald-700" />
+                          Admin Utama
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="text-xs font-semibold text-emerald-700">Aktif</span>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <span className="text-xs text-slate-400">Admin bawaan</span>
+                      </td>
+                    </tr>
                     {accounts.map((acc) => (
                       <tr key={acc.id} className="hover:bg-slate-50/70">
-                        <td className="px-4 py-3 font-mono text-xs text-slate-700">
-                          @{acc.username}
-                        </td>
+                        <td className="px-4 py-3 font-mono text-xs text-slate-700">{acc.email}</td>
                         <td className="px-4 py-3 font-medium text-slate-900">
                           {acc.nama_lengkap}
                         </td>
@@ -700,7 +700,7 @@ export function KelolaPegawaiView({ currentUser, onNotify }: KelolaPegawaiViewPr
                           </span>
                         </td>
                         <td className="px-4 py-3 text-right">
-                          {acc.id === currentUser.id ? (
+                          {acc.email === currentUser.email ? (
                             <span className="text-xs text-slate-400">Akun aktif Anda</span>
                           ) : (
                             <button
@@ -936,23 +936,23 @@ export function KelolaPegawaiView({ currentUser, onNotify }: KelolaPegawaiViewPr
             className="bg-white border border-slate-200 rounded-xl max-w-md w-full p-6 space-y-4"
           >
             <h3 id="acc-modal-title" className="text-lg font-bold text-slate-900">
-              Tambah Akun Pengguna
+              Daftarkan Email Google Pengguna
             </h3>
 
             <div>
               <label
-                htmlFor="new-acc-username"
+                htmlFor="new-acc-email"
                 className="block text-xs font-medium text-slate-700 mb-1"
               >
-                Username
+                Email Akun Google
               </label>
               <input
-                id="new-acc-username"
-                type="text"
+                id="new-acc-email"
+                type="email"
                 required
-                value={accUsername}
-                onChange={(e) => setAccUsername(e.target.value)}
-                placeholder="contoh: petugas.mbb"
+                value={accEmail}
+                onChange={(e) => setAccEmail(e.target.value)}
+                placeholder="contoh: petugas.mbb@gmail.com"
                 className="w-full min-h-[42px] px-3 py-2 text-sm border border-slate-300 rounded-lg"
               />
             </div>
@@ -993,25 +993,6 @@ export function KelolaPegawaiView({ currentUser, onNotify }: KelolaPegawaiViewPr
               </select>
             </div>
 
-            <div>
-              <label
-                htmlFor="new-acc-pass"
-                className="block text-xs font-medium text-slate-700 mb-1"
-              >
-                Kata Sandi (min. 6 karakter)
-              </label>
-              <input
-                id="new-acc-pass"
-                type="password"
-                required
-                minLength={6}
-                value={accPassword}
-                onChange={(e) => setAccPassword(e.target.value)}
-                placeholder="Minimal 6 karakter"
-                className="w-full min-h-[42px] px-3 py-2 text-sm border border-slate-300 rounded-lg"
-              />
-            </div>
-
             <div className="flex items-center justify-end gap-2.5 pt-2">
               <button
                 type="button"
@@ -1025,7 +1006,7 @@ export function KelolaPegawaiView({ currentUser, onNotify }: KelolaPegawaiViewPr
                 disabled={savingAcc}
                 className="min-h-[42px] px-4 py-2 text-sm font-semibold text-white bg-emerald-800 hover:bg-emerald-900 disabled:opacity-60 rounded-lg"
               >
-                {savingAcc ? 'Menyimpan...' : 'Buat Akun'}
+                {savingAcc ? 'Menyimpan...' : 'Daftarkan Akun'}
               </button>
             </div>
           </form>

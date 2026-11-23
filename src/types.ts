@@ -1,15 +1,26 @@
 export type UserRole = 'admin' | 'petugas';
 
 export interface AuthUser {
-  id: number;
+  id: string;
   username: string;
+  email?: string;
   nama_lengkap: string;
   role: UserRole;
   is_active: number;
 }
 
+export interface StaffInvite {
+  id: string;
+  email: string;
+  nama_lengkap: string;
+  role: UserRole;
+  is_active: number;
+  uid?: string | null;
+  created_at?: string;
+}
+
 export interface Pegawai {
-  id: number;
+  id: string;
   kode_pegawai: string;
   nama_lengkap: string;
   unit_kerja: string;
@@ -17,7 +28,7 @@ export interface Pegawai {
   created_at: string;
   updated_at: string;
   // Optional today receipt fields when fetched for distribution screen
-  penerimaan_id?: number | null;
+  penerimaan_id?: string | null;
   waktu_terima?: string | null;
   petugas_nama?: string | null;
 }
@@ -25,18 +36,18 @@ export interface Pegawai {
 export type PenerimaanStatus = 'sah' | 'dibatalkan' | 'dikoreksi';
 
 export interface PenerimaanRecord {
-  id: number;
-  pegawai_id: number;
+  id: string;
+  pegawai_id: string;
   kode_pegawai: string;
   nama_lengkap: string;
   unit_kerja: string;
   tanggal_terima: string;
   waktu_terima: string;
-  petugas_id: number;
+  petugas_id: string;
   petugas_nama: string;
   status: PenerimaanStatus;
   catatan: string | null;
-  dikoreksi_oleh: number | null;
+  dikoreksi_oleh: string | null;
   dikoreksi_oleh_nama: string | null;
   alasan_koreksi: string | null;
   waktu_koreksi: string | null;
@@ -44,15 +55,15 @@ export interface PenerimaanRecord {
 }
 
 export interface AuditLogEntry {
-  id: number;
-  penerimaan_id: number | null;
-  pegawai_id: number | null;
-  aktor_id: number;
+  id: string;
+  penerimaan_id: string | null;
+  pegawai_id: string | null;
+  aktor_id: string;
   aktor_nama: string;
   aksi: string;
   alasan: string | null;
-  data_sebelum: string | null;
-  data_sesudah: string | null;
+  data_sebelum: Record<string, unknown> | string | null;
+  data_sesudah: Record<string, unknown> | string | null;
   waktu_wib: string;
 }
 
@@ -79,7 +90,7 @@ export interface DashboardData {
 }
 
 export interface EmployeeRecapRow {
-  pegawai_id: number;
+  pegawai_id: string;
   kode_pegawai: string;
   nama_lengkap: string;
   unit_kerja: string;

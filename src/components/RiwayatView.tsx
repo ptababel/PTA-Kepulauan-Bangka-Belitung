@@ -1,12 +1,24 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { AlertTriangle, History, Search, ShieldAlert } from 'lucide-react';
-import { apiFetch, ApiError } from '../api/client';
+import {
+  correctPenerimaan,
+  fetchAuditLogs,
+  fetchPegawaiWithToday,
+  fetchRiwayatRecords,
+  getFriendlyErrorMessage,
+} from '../services/mbbFirestore';
 import type { AuditLogEntry, AuthUser, PenerimaanRecord } from '../types';
 import { addDaysWib, getWibDateString } from '../utils/wib';
 
 interface RiwayatViewProps {
   user: AuthUser;
   onNotify: (msg: string, type?: 'success' | 'error') => void;
+}
+
+function formatAuditPayload(val: Record<string, unknown> | string | null): string {
+  if (!val) return '';
+  if (typeof val === 'string') return val;
+  return JSON.stringify(val);
 }
 
 export function RiwayatView({ user, onNotify }: RiwayatViewProps) {
@@ -32,32 +44,26 @@ export function RiwayatView({ user, onNotify }: RiwayatViewProps) {
 
   const loadUnits = useCallback(async () => {
     try {
-      const res = await apiFetch<{ ok: true; units: string[] }>('/api/pegawai');
+      const res = await fetchPegawaiWithToday(user.role);
       setUnits(res.units);
     } catch {
       // ignore
     }
-  }, []);
+  }, [user.role]);
 
   const loadRecords = useCallback(async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams({
+      const rows = await fetchRiwayatRecords({
         startDate,
         endDate,
-        ...(unitFilter ? { unit: unitFilter } : {}),
-        ...(statusFilter ? { status: statusFilter } : {}),
-        ...(search.trim() ? { search: search.trim() } : {}),
+        unit: unitFilter,
+        status: statusFilter,
+        search,
       });
-      const res = await apiFetch<{ ok: true; records: PenerimaanRecord[] }>(
-        `/api/penerimaan/riwayat?${params.toString()}`
-      );
-      setRecords(res.records);
+      setRecords(rows);
     } catch (err) {
-      onNotify(
-        err instanceof ApiError ? err.message : 'Gagal memuat riwayat penerimaan.',
-        'error'
-      );
+      onNotify(getFriendlyErrorMessage(err, 'Gagal memuat riwayat penerimaan.'), 'error');
     } finally {
       setLoading(false);
     }
@@ -66,13 +72,10 @@ export function RiwayatView({ user, onNotify }: RiwayatViewProps) {
   const loadAuditLogs = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await apiFetch<{ ok: true; logs: AuditLogEntry[] }>('/api/audit-log');
-      setAuditLogs(res.logs);
+      const logs = await fetchAuditLogs();
+      setAuditLogs(logs);
     } catch (err) {
-      onNotify(
-        err instanceof ApiError ? err.message : 'Gagal memuat rekam jejak perubahan.',
-        'error'
-      );
+      onNotify(getFriendlyErrorMessage(err, 'Gagal memuat rekam jejak perubahan.'), 'error');
     } finally {
       setLoading(false);
     }
@@ -111,25 +114,18 @@ export function RiwayatView({ user, onNotify }: RiwayatViewProps) {
 
     setSubmittingKoreksi(true);
     try {
-      const res = await apiFetch<{ ok: true; message: string }>(
-        `/api/penerimaan/${koreksiTarget.id}/koreksi`,
-        {
-          method: 'POST',
-          body: JSON.stringify({
-            status: koreksiAction,
-            alasan_koreksi: alasanKoreksi.trim(),
-          }),
-        }
+      const message = await correctPenerimaan(
+        koreksiTarget,
+        koreksiAction,
+        alasanKoreksi.trim(),
+        user
       );
-      onNotify(res.message, 'success');
+      onNotify(message, 'success');
       setKoreksiTarget(null);
       setAlasanKoreksi('');
       await loadRecords();
     } catch (err) {
-      onNotify(
-        err instanceof ApiError ? err.message : 'Gagal menyimpan koreksi penerimaan.',
-        'error'
-      );
+      onNotify(getFriendlyErrorMessage(err, 'Gagal menyimpan koreksi penerimaan.'), 'error');
     } finally {
       setSubmittingKoreksi(false);
     }
@@ -429,8 +425,8 @@ export function RiwayatView({ user, onNotify }: RiwayatViewProps) {
                       </td>
                       <td className="px-4 py-3 text-slate-700">{log.alasan || '-'}</td>
                       <td className="px-4 py-3 text-xs font-mono text-slate-500 max-w-sm break-words">
-                        {log.data_sebelum && <div>Sebelum: {log.data_sebelum}</div>}
-                        {log.data_sesudah && <div>Sesudah: {log.data_sesudah}</div>}
+                        {log.data_sebelum && <div>Sebelum: {formatAuditPayload(log.data_sebelum)}</div>}
+                        {log.data_sesudah && <div>Sesudah: {formatAuditPayload(log.data_sesudah)}</div>}
                       </td>
                     </tr>
                   ))}

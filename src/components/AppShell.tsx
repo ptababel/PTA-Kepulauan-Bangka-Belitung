@@ -110,8 +110,9 @@ export function AppShell({
         <div className="p-4 border-t border-slate-200 bg-slate-50/70">
           <div className="mb-3">
             <div className="text-sm font-semibold text-slate-900 truncate">{user.nama_lengkap}</div>
-            <div className="text-xs text-slate-500">
-              {user.role === 'admin' ? 'Administrator' : 'Petugas Pembagian'} · @{user.username}
+            <div className="text-xs text-slate-500 truncate">
+              {user.role === 'admin' ? 'Administrator' : 'Petugas Pembagian'} ·{' '}
+              {user.email || user.username}
             </div>
           </div>
           <button

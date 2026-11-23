@@ -1,53 +1,51 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Download, FileSpreadsheet, Filter } from 'lucide-react';
-import { apiFetch, ApiError, downloadExcelFile } from '../api/client';
-import type { RecapData } from '../types';
+import {
+  exportRecapToExcel,
+  fetchPegawaiWithToday,
+  fetchRecapData,
+  getFriendlyErrorMessage,
+} from '../services/mbbFirestore';
+import type { AuthUser, PenerimaanRecord, RecapData } from '../types';
 import { addDaysWib, formatIndonesianDate, getWibDateString } from '../utils/wib';
 
 interface RekapitulasiViewProps {
+  user: AuthUser;
   onNotify: (msg: string, type?: 'success' | 'error') => void;
 }
 
-export function RekapitulasiView({ onNotify }: RekapitulasiViewProps) {
+export function RekapitulasiView({ user, onNotify }: RekapitulasiViewProps) {
   const todayWib = getWibDateString();
   const [startDate, setStartDate] = useState(`${todayWib.slice(0, 7)}-01`);
   const [endDate, setEndDate] = useState(todayWib);
   const [unitFilter, setUnitFilter] = useState('');
   const [units, setUnits] = useState<string[]>([]);
   const [recap, setRecap] = useState<RecapData | null>(null);
+  const [details, setDetails] = useState<PenerimaanRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
 
   const loadUnits = useCallback(async () => {
     try {
-      const res = await apiFetch<{ ok: true; units: string[] }>('/api/pegawai');
+      const res = await fetchPegawaiWithToday(user.role);
       setUnits(res.units);
     } catch {
       // ignore
     }
-  }, []);
+  }, [user.role]);
 
   const loadRecap = useCallback(async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams({
-        startDate,
-        endDate,
-        ...(unitFilter ? { unit: unitFilter } : {}),
-      });
-      const res = await apiFetch<{ ok: true; recap: RecapData }>(
-        `/api/rekapitulasi?${params.toString()}`
-      );
+      const res = await fetchRecapData(user.role, startDate, endDate, unitFilter);
       setRecap(res.recap);
+      setDetails(res.details);
     } catch (err) {
-      onNotify(
-        err instanceof ApiError ? err.message : 'Gagal memuat data rekapitulasi.',
-        'error'
-      );
+      onNotify(getFriendlyErrorMessage(err, 'Gagal memuat data rekapitulasi.'), 'error');
     } finally {
       setLoading(false);
     }
-  }, [startDate, endDate, unitFilter, onNotify]);
+  }, [user.role, startDate, endDate, unitFilter, onNotify]);
 
   useEffect(() => {
     void loadUnits();
@@ -58,23 +56,13 @@ export function RekapitulasiView({ onNotify }: RekapitulasiViewProps) {
   }, [loadRecap]);
 
   async function handleExportExcel() {
+    if (!recap) return;
     setExporting(true);
     try {
-      const params = new URLSearchParams({
-        startDate,
-        endDate,
-        ...(unitFilter ? { unit: unitFilter } : {}),
-      });
-      await downloadExcelFile(
-        `/api/rekapitulasi/export?${params.toString()}`,
-        `Rekap_MBB_PTA_Babel_${startDate}_sd_${endDate}.xlsx`
-      );
+      await exportRecapToExcel(recap, details);
       onNotify('Berkas Excel rekapitulasi berhasil diunduh.', 'success');
     } catch (err) {
-      onNotify(
-        err instanceof ApiError ? err.message : 'Gagal mengekspor Excel.',
-        'error'
-      );
+      onNotify(getFriendlyErrorMessage(err, 'Gagal mengekspor Excel.'), 'error');
     } finally {
       setExporting(false);
     }

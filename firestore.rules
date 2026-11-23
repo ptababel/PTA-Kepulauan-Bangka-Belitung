@@ -1,0 +1,418 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ── GLOBAL HELPERS ────────────────────────────────────────────────────────
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isEmailVerified() && request.auth.uid == userId;
+    }
+
+    function isBootstrappedAdmin() {
+      return isEmailVerified() && request.auth.token.email == 'ptababel@gmail.com';
+    }
+
+    function isAdmin() {
+      return isBootstrappedAdmin() || (
+        isEmailVerified() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.is_active == 1
+      );
+    }
+
+    function isPetugasOrAdmin() {
+      return isAdmin() || (
+        isEmailVerified() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.is_active == 1 &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'petugas']
+      );
+    }
+
+    // ── VALIDATION BLUEPRINTS ─────────────────────────────────────────────────
+
+    function isValidAppUser(data) {
+      return data.keys().hasAll(['uid', 'nama_lengkap', 'role', 'is_active', 'inviteId', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'nama_lengkap', 'role', 'is_active', 'inviteId', 'createdAt', 'updatedAt']) &&
+        isValidId(data.uid) &&
+        data.nama_lengkap is string && data.nama_lengkap.size() >= 2 && data.nama_lengkap.size() <= 120 &&
+        data.role is string && data.role in ['admin', 'petugas'] &&
+        data.is_active is int && (data.is_active == 0 || data.is_active == 1) &&
+        isValidId(data.inviteId) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidUserPrivateInfo(data) {
+      return data.keys().hasAll(['uid', 'email', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'email', 'updatedAt']) &&
+        isValidId(data.uid) &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 160 &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidAdminGrant(data) {
+      return data.keys().hasAll(['uid', 'is_active', 'createdAt']) &&
+        data.keys().hasOnly(['uid', 'is_active', 'createdAt']) &&
+        isValidId(data.uid) &&
+        data.is_active is int && (data.is_active == 0 || data.is_active == 1) &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidStaffInvite(data) {
+      return data.keys().hasAll(['email', 'nama_lengkap', 'role', 'is_active', 'createdBy', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['email', 'nama_lengkap', 'role', 'is_active', 'createdBy', 'createdAt', 'updatedAt']) &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 160 &&
+        data.nama_lengkap is string && data.nama_lengkap.size() >= 2 && data.nama_lengkap.size() <= 120 &&
+        data.role is string && data.role in ['admin', 'petugas'] &&
+        data.is_active is int && (data.is_active == 0 || data.is_active == 1) &&
+        isValidId(data.createdBy) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidPegawai(data) {
+      return data.keys().hasAll(['kode_pegawai', 'nama_lengkap', 'unit_kerja', 'is_active', 'created_by', 'created_at_wib', 'updated_at_wib', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['kode_pegawai', 'nama_lengkap', 'unit_kerja', 'is_active', 'created_by', 'created_at_wib', 'updated_at_wib', 'createdAt', 'updatedAt']) &&
+        data.kode_pegawai is string && data.kode_pegawai.size() >= 2 && data.kode_pegawai.size() <= 32 &&
+        data.kode_pegawai.matches('^[A-Za-z0-9_\\-]+$') &&
+        data.nama_lengkap is string && data.nama_lengkap.size() >= 2 && data.nama_lengkap.size() <= 120 &&
+        data.unit_kerja is string && data.unit_kerja.size() >= 2 && data.unit_kerja.size() <= 100 &&
+        data.is_active is int && (data.is_active == 0 || data.is_active == 1) &&
+        isValidId(data.created_by) &&
+        data.created_at_wib is string && data.created_at_wib.size() == 19 &&
+        data.created_at_wib.matches('^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}$') &&
+        data.updated_at_wib is string && data.updated_at_wib.size() == 19 &&
+        data.updated_at_wib.matches('^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}$') &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidPenerimaan(data) {
+      return data.keys().hasAll(['pegawai_id', 'kode_pegawai', 'nama_lengkap', 'unit_kerja', 'tanggal_terima', 'waktu_terima', 'petugas_id', 'petugas_nama', 'status', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['pegawai_id', 'kode_pegawai', 'nama_lengkap', 'unit_kerja', 'tanggal_terima', 'waktu_terima', 'petugas_id', 'petugas_nama', 'status', 'catatan', 'dikoreksi_oleh', 'dikoreksi_oleh_nama', 'alasan_koreksi', 'waktu_koreksi', 'createdAt', 'updatedAt']) &&
+        isValidId(data.pegawai_id) &&
+        data.kode_pegawai is string && data.kode_pegawai.size() >= 2 && data.kode_pegawai.size() <= 32 &&
+        data.kode_pegawai.matches('^[A-Za-z0-9_\\-]+$') &&
+        data.nama_lengkap is string && data.nama_lengkap.size() >= 2 && data.nama_lengkap.size() <= 120 &&
+        data.unit_kerja is string && data.unit_kerja.size() >= 2 && data.unit_kerja.size() <= 100 &&
+        data.tanggal_terima is string && data.tanggal_terima.size() == 10 &&
+        data.tanggal_terima.matches('^\\d{4}-\\d{2}-\\d{2}$') &&
+        data.waktu_terima is string && data.waktu_terima.size() == 19 &&
+        data.waktu_terima.matches('^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}$') &&
+        isValidId(data.petugas_id) &&
+        data.petugas_nama is string && data.petugas_nama.size() >= 2 && data.petugas_nama.size() <= 120 &&
+        data.status is string && data.status in ['sah', 'dibatalkan', 'dikoreksi'] &&
+        (!('catatan' in data) || data.catatan == null || (data.catatan is string && data.catatan.size() <= 500)) &&
+        (!('dikoreksi_oleh' in data) || data.dikoreksi_oleh == null || isValidId(data.dikoreksi_oleh)) &&
+        (!('dikoreksi_oleh_nama' in data) || data.dikoreksi_oleh_nama == null || (data.dikoreksi_oleh_nama is string && data.dikoreksi_oleh_nama.size() <= 120)) &&
+        (!('alasan_koreksi' in data) || data.alasan_koreksi == null || (data.alasan_koreksi is string && data.alasan_koreksi.size() <= 500)) &&
+        (!('waktu_koreksi' in data) || data.waktu_koreksi == null || (data.waktu_koreksi is string && data.waktu_koreksi.size() == 19)) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidDailyLock(data) {
+      return data.keys().hasAll(['penerimaan_id', 'pegawai_id', 'tanggal_terima', 'petugas_id', 'createdAt']) &&
+        data.keys().hasOnly(['penerimaan_id', 'pegawai_id', 'tanggal_terima', 'petugas_id', 'createdAt']) &&
+        isValidId(data.penerimaan_id) &&
+        isValidId(data.pegawai_id) &&
+        data.tanggal_terima is string && data.tanggal_terima.size() == 10 &&
+        data.tanggal_terima.matches('^\\d{4}-\\d{2}-\\d{2}$') &&
+        isValidId(data.petugas_id) &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidAuditLog(data) {
+      return data.keys().hasAll(['aktor_id', 'aktor_nama', 'aksi', 'waktu_wib', 'createdAt']) &&
+        data.keys().hasOnly(['penerimaan_id', 'pegawai_id', 'aktor_id', 'aktor_nama', 'aksi', 'alasan', 'data_sebelum', 'data_sesudah', 'waktu_wib', 'createdAt']) &&
+        (!('penerimaan_id' in data) || data.penerimaan_id == null || isValidId(data.penerimaan_id)) &&
+        (!('pegawai_id' in data) || data.pegawai_id == null || isValidId(data.pegawai_id)) &&
+        isValidId(data.aktor_id) &&
+        data.aktor_nama is string && data.aktor_nama.size() >= 2 && data.aktor_nama.size() <= 120 &&
+        data.aksi is string && data.aksi.size() >= 2 && data.aksi.size() <= 40 &&
+        (!('alasan' in data) || data.alasan == null || (data.alasan is string && data.alasan.size() <= 500)) &&
+        (!('data_sebelum' in data) || data.data_sebelum == null || (data.data_sebelum is map && data.data_sebelum.size() <= 20)) &&
+        (!('data_sesudah' in data) || data.data_sesudah == null || (data.data_sesudah is map && data.data_sesudah.size() <= 20)) &&
+        data.waktu_wib is string && data.waktu_wib.size() == 19 &&
+        data.waktu_wib.matches('^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}$') &&
+        data.createdAt is timestamp;
+    }
+
+    // ── CONNECTION TEST DOC ───────────────────────────────────────────────────
+
+    match /test/{docId} {
+      allow get: if docId == 'connection';
+      allow list, write: if false;
+    }
+
+    // ── USERS & PRIVATE PII ───────────────────────────────────────────────────
+
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin();
+
+      allow create: if isValidId(userId) &&
+        isEmailVerified() &&
+        isValidAppUser(incoming()) &&
+        incoming().uid == userId &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        (
+          isAdmin() ||
+          (
+            isOwner(userId) &&
+            isBootstrappedAdmin() &&
+            incoming().role == 'admin' &&
+            incoming().is_active == 1 &&
+            incoming().inviteId == 'bootstrap'
+          ) ||
+          (
+            isOwner(userId) &&
+            exists(/databases/$(database)/documents/staff_invites/$(incoming().inviteId)) &&
+            get(/databases/$(database)/documents/staff_invites/$(incoming().inviteId)).data.email == request.auth.token.email &&
+            get(/databases/$(database)/documents/staff_invites/$(incoming().inviteId)).data.is_active == 1 &&
+            incoming().role == get(/databases/$(database)/documents/staff_invites/$(incoming().inviteId)).data.role &&
+            incoming().is_active == 1
+          )
+        );
+
+      allow update: if isValidId(userId) &&
+        isValidAppUser(incoming()) &&
+        incoming().uid == existing().uid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          (
+            isAdmin() &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['nama_lengkap', 'role', 'is_active', 'inviteId', 'updatedAt'])
+          ) ||
+          (
+            isOwner(userId) &&
+            incoming().role == existing().role &&
+            incoming().is_active == existing().is_active &&
+            incoming().inviteId == existing().inviteId &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['nama_lengkap', 'updatedAt'])
+          )
+        );
+
+      allow delete: if false;
+
+      match /private/{docId} {
+        allow get: if isValidId(userId) && docId == 'info' && (isOwner(userId) || isAdmin());
+        allow list: if false;
+        allow create, update: if isValidId(userId) &&
+          docId == 'info' &&
+          isOwner(userId) &&
+          isValidUserPrivateInfo(incoming()) &&
+          incoming().uid == userId &&
+          incoming().email == request.auth.token.email &&
+          incoming().updatedAt == request.time;
+        allow delete: if false;
+      }
+    }
+
+    // ── ADMIN GRANTS ──────────────────────────────────────────────────────────
+
+    match /admins/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isValidId(userId) &&
+        isValidAdminGrant(incoming()) &&
+        incoming().uid == userId &&
+        incoming().createdAt == request.time &&
+        (
+          isAdmin() ||
+          (isOwner(userId) && isBootstrappedAdmin() && incoming().is_active == 1) ||
+          (
+            isOwner(userId) &&
+            exists(/databases/$(database)/documents/users/$(userId)) &&
+            get(/databases/$(database)/documents/users/$(userId)).data.role == 'admin' &&
+            get(/databases/$(database)/documents/users/$(userId)).data.is_active == 1 &&
+            incoming().is_active == 1
+          )
+        );
+      allow update: if isValidId(userId) &&
+        isAdmin() &&
+        isValidAdminGrant(incoming()) &&
+        incoming().uid == existing().uid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['is_active']);
+      allow delete: if false;
+    }
+
+    // ── STAFF INVITES ─────────────────────────────────────────────────────────
+
+    match /staff_invites/{inviteId} {
+      allow get: if isValidId(inviteId) && (
+        isAdmin() ||
+        (isEmailVerified() && existing().email == request.auth.token.email)
+      );
+      allow list: if isAdmin() || (
+        isEmailVerified() &&
+        resource.data.email == request.auth.token.email
+      );
+      allow create: if isValidId(inviteId) &&
+        isAdmin() &&
+        isValidStaffInvite(incoming()) &&
+        incoming().createdBy == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isValidId(inviteId) &&
+        isAdmin() &&
+        isValidStaffInvite(incoming()) &&
+        incoming().email == existing().email &&
+        incoming().createdBy == existing().createdBy &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['nama_lengkap', 'role', 'is_active', 'updatedAt']);
+      allow delete: if false;
+    }
+
+    // ── PEGAWAI (MASTER DATA) ─────────────────────────────────────────────────
+
+    match /pegawai/{pegawaiId} {
+      allow get: if isValidId(pegawaiId) && (
+        isAdmin() ||
+        (isPetugasOrAdmin() && existing().is_active == 1)
+      );
+      allow list: if isAdmin() || (
+        isPetugasOrAdmin() &&
+        resource.data.is_active == 1
+      );
+      allow create: if isValidId(pegawaiId) &&
+        isAdmin() &&
+        isValidPegawai(incoming()) &&
+        incoming().created_by == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isValidId(pegawaiId) &&
+        isAdmin() &&
+        isValidPegawai(incoming()) &&
+        incoming().kode_pegawai == existing().kode_pegawai &&
+        incoming().created_by == existing().created_by &&
+        incoming().created_at_wib == existing().created_at_wib &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          incoming().diff(existing()).affectedKeys().hasOnly(['nama_lengkap', 'unit_kerja', 'updated_at_wib', 'updatedAt']) ||
+          incoming().diff(existing()).affectedKeys().hasOnly(['is_active', 'updated_at_wib', 'updatedAt'])
+        );
+      allow delete: if false;
+    }
+
+    // ── PENERIMAAN MAKANAN ────────────────────────────────────────────────────
+
+    match /penerimaan_makanan/{penerimaanId} {
+      allow get: if isValidId(penerimaanId) && isPetugasOrAdmin();
+      allow list: if isAdmin() || (
+        isPetugasOrAdmin() &&
+        resource.data.status in ['sah', 'dibatalkan', 'dikoreksi']
+      );
+
+      allow create: if isValidId(penerimaanId) &&
+        isPetugasOrAdmin() &&
+        isValidPenerimaan(incoming()) &&
+        incoming().petugas_id == request.auth.uid &&
+        incoming().status == 'sah' &&
+        (!('dikoreksi_oleh' in incoming()) || incoming().dikoreksi_oleh == null) &&
+        (!('alasan_koreksi' in incoming()) || incoming().alasan_koreksi == null) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        exists(/databases/$(database)/documents/pegawai/$(incoming().pegawai_id)) &&
+        get(/databases/$(database)/documents/pegawai/$(incoming().pegawai_id)).data.is_active == 1 &&
+        existsAfter(/databases/$(database)/documents/daily_locks/$(incoming().pegawai_id + '_' + incoming().tanggal_terima));
+
+      allow update: if isValidId(penerimaanId) &&
+        isAdmin() &&
+        isValidPenerimaan(incoming()) &&
+        existing().status != 'dibatalkan' &&
+        incoming().pegawai_id == existing().pegawai_id &&
+        incoming().kode_pegawai == existing().kode_pegawai &&
+        incoming().nama_lengkap == existing().nama_lengkap &&
+        incoming().unit_kerja == existing().unit_kerja &&
+        incoming().tanggal_terima == existing().tanggal_terima &&
+        incoming().waktu_terima == existing().waktu_terima &&
+        incoming().petugas_id == existing().petugas_id &&
+        incoming().petugas_nama == existing().petugas_nama &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().status in ['dibatalkan', 'dikoreksi'] &&
+        incoming().dikoreksi_oleh == request.auth.uid &&
+        incoming().alasan_koreksi is string &&
+        incoming().alasan_koreksi.size() >= 5 &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'status',
+          'catatan',
+          'dikoreksi_oleh',
+          'dikoreksi_oleh_nama',
+          'alasan_koreksi',
+          'waktu_koreksi',
+          'updatedAt'
+        ]);
+
+      allow delete: if false;
+    }
+
+    // ── DAILY LOCKS (ATOMIC DUPLICATE GUARD) ──────────────────────────────────
+
+    match /daily_locks/{lockId} {
+      allow get: if isValidId(lockId) && isPetugasOrAdmin();
+      allow list: if false;
+      allow create: if isValidId(lockId) &&
+        isPetugasOrAdmin() &&
+        isValidDailyLock(incoming()) &&
+        incoming().petugas_id == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        lockId == incoming().pegawai_id + '_' + incoming().tanggal_terima &&
+        existsAfter(/databases/$(database)/documents/penerimaan_makanan/$(incoming().penerimaan_id));
+      allow update: if false;
+      allow delete: if isValidId(lockId) && isAdmin();
+    }
+
+    // ── AUDIT LOG (APPEND-ONLY) ───────────────────────────────────────────────
+
+    match /audit_log/{logId} {
+      allow get: if isValidId(logId) && isPetugasOrAdmin();
+      allow list: if isAdmin() || (
+        isPetugasOrAdmin() &&
+        resource.data.aktor_id is string
+      );
+      allow create: if isValidId(logId) &&
+        isPetugasOrAdmin() &&
+        isValidAuditLog(incoming()) &&
+        incoming().aktor_id == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        (
+          isAdmin() ||
+          incoming().aksi == 'CATAT'
+        );
+      allow update, delete: if false;
+    }
+  }
+}

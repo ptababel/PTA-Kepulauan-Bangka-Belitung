@@ -1,100 +1,38 @@
-import { useState, type FormEvent } from 'react';
-import { Eye, EyeOff, Lock, UserCheck, Utensils } from 'lucide-react';
-import { apiFetch, ApiError, setAuthToken } from '../api/client';
-import type { AuthUser } from '../types';
+import { useState } from 'react';
+import { signInWithPopup } from 'firebase/auth';
+import { Database, ShieldCheck, UserCheck, Utensils } from 'lucide-react';
+import { auth, googleProvider } from '../firebase';
+import { BOOTSTRAPPED_ADMIN_EMAIL } from '../services/mbbFirestore';
 import { LogoBadge } from './LogoBadge';
 
 interface AuthScreenProps {
-  needsInitialSetup: boolean;
-  onAuthenticated: (user: AuthUser) => void;
-  onSetupCompleted: () => void;
+  externalError?: string;
+  onClearExternalError?: () => void;
 }
 
-export function AuthScreen({
-  needsInitialSetup,
-  onAuthenticated,
-  onSetupCompleted,
-}: AuthScreenProps) {
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-
-  // First-run Admin setup fields
-  const [adminUsername, setAdminUsername] = useState('admin');
-  const [adminName, setAdminName] = useState('Administrator MBB');
-  const [adminPassword, setAdminPassword] = useState('');
-  const [createInitialPetugas, setCreateInitialPetugas] = useState(true);
-  const [petugasUsername, setPetugasUsername] = useState('petugas1');
-  const [petugasName, setPetugasName] = useState('Petugas Pembagian MBB');
-  const [petugasPassword, setPetugasPassword] = useState('');
-
+export function AuthScreen({ externalError = '', onClearExternalError }: AuthScreenProps) {
   const [submitting, setSubmitting] = useState(false);
-  const [errorMsg, setErrorMsg] = useState('');
+  const [localError, setLocalError] = useState('');
 
-  async function handleLogin(e: FormEvent) {
-    e.preventDefault();
-    setErrorMsg('');
-    if (!username.trim() || !password) {
-      setErrorMsg('Username dan kata sandi wajib diisi.');
-      return;
-    }
+  const displayError = externalError || localError;
 
+  async function handleGoogleSignIn() {
+    setLocalError('');
+    onClearExternalError?.();
     setSubmitting(true);
     try {
-      const data = await apiFetch<{ ok: true; token: string; user: AuthUser }>('/api/auth/login', {
-        method: 'POST',
-        body: JSON.stringify({ username: username.trim(), password }),
-      });
-      setAuthToken(data.token);
-      onAuthenticated(data.user);
+      await signInWithPopup(auth, googleProvider);
     } catch (err) {
-      setErrorMsg(err instanceof ApiError ? err.message : 'Gagal masuk ke sistem.');
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  async function handleInitialSetup(e: FormEvent) {
-    e.preventDefault();
-    setErrorMsg('');
-
-    if (adminPassword.length < 6) {
-      setErrorMsg('Kata sandi Admin minimal 6 karakter.');
-      return;
-    }
-    if (createInitialPetugas && petugasPassword.length < 6) {
-      setErrorMsg('Kata sandi Petugas minimal 6 karakter.');
-      return;
-    }
-
-    setSubmitting(true);
-    try {
-      const payload = {
-        username: adminUsername.trim(),
-        nama_lengkap: adminName.trim(),
-        password: adminPassword,
-        ...(createInitialPetugas
-          ? {
-              petugas_username: petugasUsername.trim(),
-              petugas_nama: petugasName.trim(),
-              petugas_password: petugasPassword,
-            }
-          : {}),
-      };
-
-      const data = await apiFetch<{ ok: true; token: string; user: AuthUser }>(
-        '/api/auth/setup-admin',
-        {
-          method: 'POST',
-          body: JSON.stringify(payload),
-        }
-      );
-      setAuthToken(data.token);
-      onSetupCompleted();
-      onAuthenticated(data.user);
-    } catch (err) {
-      setErrorMsg(err instanceof ApiError ? err.message : 'Gagal menyelesaikan aktivasi awal.');
-    } finally {
+      const code = (err as { code?: string })?.code ?? '';
+      if (code === 'auth/popup-closed-by-user') {
+        setLocalError('Jendela login Google ditutup sebelum proses masuk selesai.');
+      } else if (code === 'auth/popup-blocked') {
+        setLocalError('Popup login Google diblokir oleh browser. Izinkan popup lalu coba kembali.');
+      } else {
+        setLocalError(
+          err instanceof Error ? err.message : 'Gagal masuk menggunakan akun Google.'
+        );
+      }
       setSubmitting(false);
     }
   }
@@ -124,7 +62,7 @@ export function AuthScreen({
             </h1>
             <p className="text-sm text-emerald-100/90 leading-relaxed">
               Sistem pencatatan distribusi dan absensi penerimaan Makan Berkah Bersama berbasis
-              peran Admin dan Petugas Pembagian Makanan dengan pencatatan waktu WIB secara real-time.
+              peran Admin dan Petugas Pembagian Makanan dengan penyimpanan cloud Firebase Firestore.
             </p>
           </div>
 
@@ -137,256 +75,63 @@ export function AuthScreen({
               <UserCheck className="w-4 h-4 text-amber-300 shrink-0 mt-0.5" />
               <span>Hak akses terpisah antara Admin pengelola &amp; Petugas lapangan</span>
             </div>
+            <div className="flex items-start gap-2.5">
+              <Database className="w-4 h-4 text-amber-300 shrink-0 mt-0.5" />
+              <span>Tersimpan permanen &amp; tersinkron real-time di Firebase Firestore</span>
+            </div>
           </div>
         </div>
 
-        {/* Right Form Panel */}
+        {/* Right Sign-in Panel */}
         <div className="lg:col-span-7 p-6 sm:p-8 flex flex-col justify-center">
-          {needsInitialSetup ? (
-            <div>
-              <div className="mb-5">
-                <h2 className="text-xl font-bold text-slate-900">
-                  Aktivasi Akun Admin Pertama
-                </h2>
-                <p className="text-sm text-slate-600 mt-1">
-                  Belum ada akun terdaftar di database. Buat akun Admin utama untuk mulai mengelola
-                  aplikasi MBB.
-                </p>
-              </div>
+          <div className="mb-6">
+            <h2 className="text-xl font-bold text-slate-900">Masuk ke Aplikasi</h2>
+            <p className="text-sm text-slate-600 mt-1">
+              Masuk menggunakan akun Google yang telah diotorisasi sebagai Admin atau Petugas
+              Pembagian Makanan.
+            </p>
+          </div>
 
-              {errorMsg && (
-                <div
-                  role="alert"
-                  className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700"
-                >
-                  {errorMsg}
-                </div>
-              )}
-
-              <form onSubmit={handleInitialSetup} className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label
-                      htmlFor="setup-admin-user"
-                      className="block text-xs font-medium text-slate-700 mb-1"
-                    >
-                      Username Admin
-                    </label>
-                    <input
-                      id="setup-admin-user"
-                      type="text"
-                      required
-                      value={adminUsername}
-                      onChange={(e) => setAdminUsername(e.target.value)}
-                      className="w-full px-3 py-2.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-700 focus:border-emerald-700"
-                      placeholder="admin"
-                    />
-                  </div>
-                  <div>
-                    <label
-                      htmlFor="setup-admin-name"
-                      className="block text-xs font-medium text-slate-700 mb-1"
-                    >
-                      Nama Lengkap Admin
-                    </label>
-                    <input
-                      id="setup-admin-name"
-                      type="text"
-                      required
-                      value={adminName}
-                      onChange={(e) => setAdminName(e.target.value)}
-                      className="w-full px-3 py-2.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-700 focus:border-emerald-700"
-                      placeholder="Administrator MBB"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="setup-admin-pass"
-                    className="block text-xs font-medium text-slate-700 mb-1"
-                  >
-                    Kata Sandi Admin (min. 6 karakter)
-                  </label>
-                  <div className="relative">
-                    <input
-                      id="setup-admin-pass"
-                      type={showPassword ? 'text' : 'password'}
-                      required
-                      minLength={6}
-                      value={adminPassword}
-                      onChange={(e) => setAdminPassword(e.target.value)}
-                      className="w-full px-3 py-2.5 pr-10 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-700 focus:border-emerald-700"
-                      placeholder="Buat kata sandi Admin"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword((s) => !s)}
-                      aria-label={showPassword ? 'Sembunyikan kata sandi' : 'Lihat kata sandi'}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-500 hover:text-slate-700"
-                    >
-                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="pt-2 border-t border-slate-200">
-                  <label className="flex items-center gap-2.5 cursor-pointer text-sm font-medium text-slate-800">
-                    <input
-                      type="checkbox"
-                      checked={createInitialPetugas}
-                      onChange={(e) => setCreateInitialPetugas(e.target.checked)}
-                      className="w-4 h-4 accent-emerald-800 rounded"
-                    />
-                    Sekaligus buat akun Petugas Pembagian Makanan pertama
-                  </label>
-
-                  {createInitialPetugas && (
-                    <div className="mt-3 p-3.5 rounded-lg bg-slate-50 border border-slate-200 space-y-3">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div>
-                          <label
-                            htmlFor="setup-petugas-user"
-                            className="block text-xs font-medium text-slate-700 mb-1"
-                          >
-                            Username Petugas
-                          </label>
-                          <input
-                            id="setup-petugas-user"
-                            type="text"
-                            required={createInitialPetugas}
-                            value={petugasUsername}
-                            onChange={(e) => setPetugasUsername(e.target.value)}
-                            className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-700"
-                          />
-                        </div>
-                        <div>
-                          <label
-                            htmlFor="setup-petugas-name"
-                            className="block text-xs font-medium text-slate-700 mb-1"
-                          >
-                            Nama Lengkap Petugas
-                          </label>
-                          <input
-                            id="setup-petugas-name"
-                            type="text"
-                            required={createInitialPetugas}
-                            value={petugasName}
-                            onChange={(e) => setPetugasName(e.target.value)}
-                            className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-700"
-                          />
-                        </div>
-                      </div>
-                      <div>
-                        <label
-                          htmlFor="setup-petugas-pass"
-                          className="block text-xs font-medium text-slate-700 mb-1"
-                        >
-                          Kata Sandi Petugas (min. 6 karakter)
-                        </label>
-                        <input
-                          id="setup-petugas-pass"
-                          type={showPassword ? 'text' : 'password'}
-                          required={createInitialPetugas}
-                          minLength={6}
-                          value={petugasPassword}
-                          onChange={(e) => setPetugasPassword(e.target.value)}
-                          className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-700"
-                          placeholder="Buat kata sandi Petugas"
-                        />
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="w-full min-h-[44px] px-4 py-2.5 bg-emerald-800 hover:bg-emerald-900 disabled:opacity-60 text-white text-sm font-semibold rounded-lg transition-colors flex items-center justify-center gap-2"
-                >
-                  <Lock className="w-4 h-4" />
-                  {submitting ? 'Menyimpan Konfigurasi...' : 'Simpan & Masuk sebagai Admin'}
-                </button>
-              </form>
-            </div>
-          ) : (
-            <div>
-              <div className="mb-6">
-                <h2 className="text-xl font-bold text-slate-900">Masuk ke Aplikasi</h2>
-                <p className="text-sm text-slate-600 mt-1">
-                  Gunakan akun Admin atau Petugas Pembagian Makanan yang terdaftar.
-                </p>
-              </div>
-
-              {errorMsg && (
-                <div
-                  role="alert"
-                  className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700"
-                >
-                  {errorMsg}
-                </div>
-              )}
-
-              <form onSubmit={handleLogin} className="space-y-4">
-                <div>
-                  <label
-                    htmlFor="login-username"
-                    className="block text-xs font-medium text-slate-700 mb-1.5"
-                  >
-                    Username
-                  </label>
-                  <input
-                    id="login-username"
-                    type="text"
-                    autoComplete="username"
-                    required
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    className="w-full min-h-[44px] px-3.5 py-2.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-700 focus:border-emerald-700"
-                    placeholder="Masukkan username Anda"
-                  />
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="login-password"
-                    className="block text-xs font-medium text-slate-700 mb-1.5"
-                  >
-                    Kata Sandi
-                  </label>
-                  <div className="relative">
-                    <input
-                      id="login-password"
-                      type={showPassword ? 'text' : 'password'}
-                      autoComplete="current-password"
-                      required
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      className="w-full min-h-[44px] px-3.5 py-2.5 pr-11 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-700 focus:border-emerald-700"
-                      placeholder="Masukkan kata sandi"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword((s) => !s)}
-                      aria-label={showPassword ? 'Sembunyikan kata sandi' : 'Lihat kata sandi'}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1.5 text-slate-500 hover:text-slate-700"
-                    >
-                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="w-full min-h-[44px] px-4 py-2.5 bg-emerald-800 hover:bg-emerald-900 disabled:opacity-60 text-white text-sm font-semibold rounded-lg transition-colors flex items-center justify-center gap-2"
-                >
-                  <Lock className="w-4 h-4" />
-                  {submitting ? 'Memverifikasi...' : 'Masuk'}
-                </button>
-              </form>
+          {displayError && (
+            <div
+              role="alert"
+              className="mb-5 p-3.5 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700 leading-relaxed"
+            >
+              {displayError}
             </div>
           )}
+
+          <button
+            type="button"
+            disabled={submitting}
+            onClick={() => void handleGoogleSignIn()}
+            className="w-full min-h-[48px] px-4 py-3 bg-emerald-800 hover:bg-emerald-900 disabled:opacity-60 text-white text-sm font-semibold rounded-lg transition-colors flex items-center justify-center gap-3"
+          >
+            <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                fill="#ffffff"
+                d="M21.35 11.1h-9.17v2.73h6.51c-.33 3.81-3.5 5.44-6.5 5.44C8.36 19.27 5 16.25 5 12c0-4.1 3.2-7.27 7.2-7.27c3.09 0 4.9 1.97 4.9 1.97L19 4.72S16.56 2 12.1 2C6.42 2 2.03 6.8 2.03 12c0 5.05 4.13 10 10.22 10c5.35 0 9.25-3.67 9.25-9.09c0-1.15-.15-1.81-.15-1.81Z"
+              />
+            </svg>
+            {submitting ? 'Memproses Login Google...' : 'Masuk dengan Akun Google'}
+          </button>
+
+          <div className="mt-6 p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs text-slate-600">
+            <div className="flex items-center gap-2 font-semibold text-slate-800">
+              <ShieldCheck className="w-4 h-4 text-emerald-800 shrink-0" />
+              <span>Ketentuan Akses Berbasis Peran</span>
+            </div>
+            <p className="leading-relaxed">
+              • <strong>Administrator Utama:</strong> Masuk dengan akun Google{' '}
+              <span className="font-mono text-slate-800">{BOOTSTRAPPED_ADMIN_EMAIL}</span> untuk
+              mengelola daftar pegawai, mengganti nama/unit kerja, impor Excel, koreksi riwayat, dan
+              menambahkan email Google Petugas.
+            </p>
+            <p className="leading-relaxed">
+              • <strong>Petugas Pembagian Makanan:</strong> Masuk menggunakan akun Google yang telah
+              didaftarkan Admin melalui menu <em>Kelola Pegawai → Akun Petugas &amp; Admin</em>.
+            </p>
+          </div>
         </div>
       </div>
     </div>

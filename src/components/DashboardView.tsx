@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ArrowRight, CheckCircle2, Clock, RefreshCw, Users } from 'lucide-react';
-import { apiFetch, ApiError } from '../api/client';
+import { fetchDashboardData, getFriendlyErrorMessage } from '../services/mbbFirestore';
 import type { DashboardData, NavTab } from '../types';
 import { extractWibTime, formatIndonesianDate } from '../utils/wib';
 
@@ -17,10 +17,10 @@ export function DashboardView({ onNavigate }: DashboardViewProps) {
     setLoading(true);
     setError('');
     try {
-      const res = await apiFetch<{ ok: true; dashboard: DashboardData }>('/api/dashboard');
-      setData(res.dashboard);
+      const dashboard = await fetchDashboardData();
+      setData(dashboard);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Gagal memuat ringkasan dashboard.');
+      setError(getFriendlyErrorMessage(err, 'Gagal memuat ringkasan dashboard.'));
     } finally {
       setLoading(false);
     }

@@ -1,0 +1,449 @@
+{
+  "entities": {
+    "AppUser": {
+      "title": "AppUser",
+      "description": "Profil non-PII akun pengguna aplikasi Absen MBB (Admin atau Petugas Pembagian Makanan).",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID pemilik akun.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "nama_lengkap": {
+          "type": "string",
+          "description": "Nama lengkap pengguna yang tampil di riwayat dan navbar.",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "role": {
+          "type": "string",
+          "description": "Peran akses pengguna.",
+          "enum": ["admin", "petugas"]
+        },
+        "is_active": {
+          "type": "integer",
+          "description": "Status aktif akun (1 = aktif, 0 = nonaktif)."
+        },
+        "inviteId": {
+          "type": "string",
+          "description": "ID undangan akses atau penanda bootstrap admin.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp server saat akun dibuat."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp server saat akun terakhir diperbarui."
+        }
+      },
+      "required": ["uid", "nama_lengkap", "role", "is_active", "inviteId", "createdAt", "updatedAt"]
+    },
+    "UserPrivateInfo": {
+      "title": "UserPrivateInfo",
+      "description": "Data PII email pengguna yang terisolasi di subkoleksi private.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "Alamat email Google terverifikasi pengguna.",
+          "minLength": 3,
+          "maxLength": 160
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp server pembaruan."
+        }
+      },
+      "required": ["uid", "email", "updatedAt"]
+    },
+    "AdminGrant": {
+      "title": "AdminGrant",
+      "description": "Penanda hak akses Administrator untuk verifikasi RBAC di Firestore Rules.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID Admin.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "is_active": {
+          "type": "integer",
+          "description": "Status aktif hak admin (1 = aktif, 0 = nonaktif)."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp server pemberian hak admin."
+        }
+      },
+      "required": ["uid", "is_active", "createdAt"]
+    },
+    "StaffInvite": {
+      "title": "StaffInvite",
+      "description": "Daftar email Google yang diotorisasi oleh Admin sebagai Petugas atau Admin tambahan.",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "Alamat email Google staf yang diizinkan masuk.",
+          "minLength": 3,
+          "maxLength": 160
+        },
+        "nama_lengkap": {
+          "type": "string",
+          "description": "Nama lengkap staf.",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "role": {
+          "type": "string",
+          "description": "Peran yang diberikan kepada akun tersebut.",
+          "enum": ["admin", "petugas"]
+        },
+        "is_active": {
+          "type": "integer",
+          "description": "Status aktif akses (1 = aktif, 0 = nonaktif)."
+        },
+        "createdBy": {
+          "type": "string",
+          "description": "UID Admin yang mendaftarkan akses.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp server pendaftaran."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp server pembaruan."
+        }
+      },
+      "required": ["email", "nama_lengkap", "role", "is_active", "createdBy", "createdAt", "updatedAt"]
+    },
+    "Pegawai": {
+      "title": "Pegawai",
+      "description": "Master data penerima Makan Berkah Bersama PTA Kepulauan Bangka Belitung.",
+      "type": "object",
+      "properties": {
+        "kode_pegawai": {
+          "type": "string",
+          "description": "Kode unik pegawai (contoh: MBB-001).",
+          "minLength": 2,
+          "maxLength": 32,
+          "pattern": "^[A-Za-z0-9_\\-]+$"
+        },
+        "nama_lengkap": {
+          "type": "string",
+          "description": "Nama lengkap pegawai beserta gelar.",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "unit_kerja": {
+          "type": "string",
+          "description": "Satuan atau unit kerja pegawai.",
+          "minLength": 2,
+          "maxLength": 100
+        },
+        "is_active": {
+          "type": "integer",
+          "description": "Status aktif penerima (1 = aktif, 0 = nonaktif)."
+        },
+        "created_by": {
+          "type": "string",
+          "description": "UID Admin pembuat data pegawai.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "created_at_wib": {
+          "type": "string",
+          "description": "Waktu WIB pembuatan dalam format YYYY-MM-DD HH:mm:ss.",
+          "minLength": 19,
+          "maxLength": 19,
+          "pattern": "^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}$"
+        },
+        "updated_at_wib": {
+          "type": "string",
+          "description": "Waktu WIB pembaruan dalam format YYYY-MM-DD HH:mm:ss.",
+          "minLength": 19,
+          "maxLength": 19,
+          "pattern": "^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp server pembuatan."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp server pembaruan."
+        }
+      },
+      "required": ["kode_pegawai", "nama_lengkap", "unit_kerja", "is_active", "created_by", "created_at_wib", "updated_at_wib", "createdAt", "updatedAt"]
+    },
+    "PenerimaanMakanan": {
+      "title": "PenerimaanMakanan",
+      "description": "Catatan penyerahan makanan Makan Berkah Bersama per tanggal WIB.",
+      "type": "object",
+      "properties": {
+        "pegawai_id": {
+          "type": "string",
+          "description": "ID dokumen pegawai penerima.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "kode_pegawai": {
+          "type": "string",
+          "description": "Snapshot kode pegawai saat penyerahan.",
+          "minLength": 2,
+          "maxLength": 32,
+          "pattern": "^[A-Za-z0-9_\\-]+$"
+        },
+        "nama_lengkap": {
+          "type": "string",
+          "description": "Snapshot nama pegawai saat penyerahan.",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "unit_kerja": {
+          "type": "string",
+          "description": "Snapshot unit kerja saat penyerahan.",
+          "minLength": 2,
+          "maxLength": 100
+        },
+        "tanggal_terima": {
+          "type": "string",
+          "description": "Tanggal penerimaan zona WIB (YYYY-MM-DD).",
+          "minLength": 10,
+          "maxLength": 10,
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "waktu_terima": {
+          "type": "string",
+          "description": "Tanggal dan jam penerimaan zona WIB (YYYY-MM-DD HH:mm:ss).",
+          "minLength": 19,
+          "maxLength": 19,
+          "pattern": "^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}$"
+        },
+        "petugas_id": {
+          "type": "string",
+          "description": "UID petugas yang mencatat penyerahan.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "petugas_nama": {
+          "type": "string",
+          "description": "Nama lengkap petugas pencatat.",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "status": {
+          "type": "string",
+          "description": "Status keabsahan penerimaan.",
+          "enum": ["sah", "dibatalkan", "dikoreksi"]
+        },
+        "catatan": {
+          "type": "string",
+          "description": "Catatan opsional.",
+          "maxLength": 500
+        },
+        "dikoreksi_oleh": {
+          "type": "string",
+          "description": "UID admin yang melakukan koreksi.",
+          "maxLength": 128
+        },
+        "dikoreksi_oleh_nama": {
+          "type": "string",
+          "description": "Nama admin yang melakukan koreksi.",
+          "maxLength": 120
+        },
+        "alasan_koreksi": {
+          "type": "string",
+          "description": "Alasan pembatalan atau koreksi.",
+          "maxLength": 500
+        },
+        "waktu_koreksi": {
+          "type": "string",
+          "description": "Waktu WIB saat koreksi dilakukan.",
+          "maxLength": 19
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp server pembuatan."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp server pembaruan."
+        }
+      },
+      "required": ["pegawai_id", "kode_pegawai", "nama_lengkap", "unit_kerja", "tanggal_terima", "waktu_terima", "petugas_id", "petugas_nama", "status", "createdAt", "updatedAt"]
+    },
+    "DailyLock": {
+      "title": "DailyLock",
+      "description": "Kunci atomik harian untuk mencegah penerimaan ganda pada tanggal WIB yang sama.",
+      "type": "object",
+      "properties": {
+        "penerimaan_id": {
+          "type": "string",
+          "description": "ID dokumen penerimaan sah yang sedang aktif.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "pegawai_id": {
+          "type": "string",
+          "description": "ID dokumen pegawai.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "tanggal_terima": {
+          "type": "string",
+          "description": "Tanggal WIB (YYYY-MM-DD).",
+          "minLength": 10,
+          "maxLength": 10,
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "petugas_id": {
+          "type": "string",
+          "description": "UID petugas pencatat.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp server pembuatan kunci harian."
+        }
+      },
+      "required": ["penerimaan_id", "pegawai_id", "tanggal_terima", "petugas_id", "createdAt"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Rekam jejak permanen (append-only) seluruh perubahan pegawai dan koreksi penerimaan.",
+      "type": "object",
+      "properties": {
+        "penerimaan_id": {
+          "type": "string",
+          "description": "ID dokumen penerimaan terkait jika ada.",
+          "maxLength": 128
+        },
+        "pegawai_id": {
+          "type": "string",
+          "description": "ID dokumen pegawai terkait jika ada.",
+          "maxLength": 128
+        },
+        "aktor_id": {
+          "type": "string",
+          "description": "UID pengguna pelaku aksi.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "aktor_nama": {
+          "type": "string",
+          "description": "Nama pelaku aksi.",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "aksi": {
+          "type": "string",
+          "description": "Jenis aksi audit.",
+          "minLength": 2,
+          "maxLength": 40
+        },
+        "alasan": {
+          "type": "string",
+          "description": "Keterangan atau alasan perubahan.",
+          "maxLength": 500
+        },
+        "data_sebelum": {
+          "type": "object",
+          "description": "Snapshot data sebelum perubahan."
+        },
+        "data_sesudah": {
+          "type": "object",
+          "description": "Snapshot data sesudah perubahan."
+        },
+        "waktu_wib": {
+          "type": "string",
+          "description": "Waktu WIB kejadian.",
+          "minLength": 19,
+          "maxLength": 19,
+          "pattern": "^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp server audit log."
+        }
+      },
+      "required": ["aktor_id", "aktor_nama", "aksi", "waktu_wib", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/AppUser" },
+      "description": "Profil peran dan status akun pengguna aplikasi (tanpa PII email)."
+    },
+    "/users/{userId}/private/{docId}": {
+      "schema": { "$ref": "#/entities/UserPrivateInfo" },
+      "description": "Data email terverifikasi pengguna yang terisolasi."
+    },
+    "/admins/{userId}": {
+      "schema": { "$ref": "#/entities/AdminGrant" },
+      "description": "Dokumen penanda hak administrator untuk evaluasi aturan keamanan."
+    },
+    "/staff_invites/{inviteId}": {
+      "schema": { "$ref": "#/entities/StaffInvite" },
+      "description": "Daftar otorisasi email Google staf (Admin dan Petugas)."
+    },
+    "/pegawai/{pegawaiId}": {
+      "schema": { "$ref": "#/entities/Pegawai" },
+      "description": "Master daftar pegawai penerima Makan Berkah Bersama."
+    },
+    "/penerimaan_makanan/{penerimaanId}": {
+      "schema": { "$ref": "#/entities/PenerimaanMakanan" },
+      "description": "Riwayat catatan penyerahan makanan MBB per pegawai per tanggal WIB."
+    },
+    "/daily_locks/{lockId}": {
+      "schema": { "$ref": "#/entities/DailyLock" },
+      "description": "Kunci unik harian untuk mencegah pencatatan penerimaan ganda pada tanggal yang sama."
+    },
+    "/audit_log/{logId}": {
+      "schema": { "$ref": "#/entities/AuditLog" },
+      "description": "Rekam jejak perubahan data pegawai dan koreksi/pembatalan penerimaan."
+    }
+  }
+}
